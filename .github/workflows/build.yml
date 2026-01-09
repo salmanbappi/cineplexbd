@@ -56,7 +56,13 @@ jobs:
       - name: Push to Extensions Repo
         run: |
           REPO_DIR="extensions-repo-tmp"
-          git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/salmanbappi/extensions-repo.git $REPO_DIR
+          # Use GH_PAT if available, otherwise fallback to GITHUB_TOKEN (might only have read access)
+          AUTH_TOKEN="${{ secrets.GH_PAT }}"
+          if [ -z "$AUTH_TOKEN" ]; then
+            AUTH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          fi
+          
+          git clone https://x-access-token:$AUTH_TOKEN@github.com/salmanbappi/extensions-repo.git $REPO_DIR
           
           PKG_NAME="eu.kanade.tachiyomi.animeextension.all.cineplexbd"
           VERSION_CODE="${{ env.VERSION_CODE }}"
@@ -69,5 +75,5 @@ jobs:
           git config user.name "Gemini Automation"
           git config user.email "gemini@automation.bot"
           git add $TARGET_NAME
-          git commit -m "Update Cineplex BD to v$VERSION_NAME"
+          git commit -m "Update Cineplex BD to v$VERSION_NAME" || exit 0
           git push
