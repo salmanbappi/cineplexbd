@@ -18,7 +18,7 @@ android {
         main {
             manifest.srcFile("src/main/AndroidManifest.xml")
             java.srcDirs = ['src']
-            res.srcDirs = ['res']
+            res.srcDirs = ['src/main/res']
         }
     }
 
@@ -49,6 +49,7 @@ android {
 
     kotlinOptions {
         jvmTarget = "1.8"
+        freeCompilerArgs += "-Xskip-metadata-version-check"
     }
 }
 
