@@ -79,7 +79,7 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
-        val filters = if (response.request.tag is AnimeFilterList) response.request.tag as AnimeFilterList else AnimeFilterList()
+        val filters = if (response.request.tag() is AnimeFilterList) response.request.tag() as AnimeFilterList else AnimeFilterList()
         
         // Parse grid items (Movies and TV)
         doc.select("a[href^='view.php'], a[href^='watch.php']").forEach { element ->
