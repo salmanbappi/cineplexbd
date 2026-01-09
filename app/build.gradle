@@ -5,4 +5,4 @@ ext {
     baseUrl = 'http://cineplexbd.net'
 }
 
-apply from: "$rootDir/common.gradle"
+apply from: "../common.gradle"

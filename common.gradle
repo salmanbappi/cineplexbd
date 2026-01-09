@@ -1,0 +1,38 @@
+// Common gradle configuration
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+apply plugin: 'kotlinx-serialization'
+
+android {
+    compileSdk 34
+
+    namespace "eu.kanade.tachiyomi.animeextension"
+    
+    defaultConfig {
+        minSdk 21
+        targetSdk 34
+        versionCode extVersionCode
+        versionName "14.$versionCode"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+    
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+dependencies {
+    implementation(project(":core"))
+    compileOnly("com.github.aniyomi:aniyomi-extensions-lib:1.0") 
+}
