@@ -14,10 +14,7 @@ gradle-kotlinter = { module = "org.jmailen.gradle:kotlinter-gradle", version = "
 
 aniyomi-lib = { module = "com.github.komikku-app:aniyomi-extensions-lib", version = "F078000101" }
 
-kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin_version" }
-kotlin-stdlib-jdk8 = { module = "org.jetbrains.kotlin:kotlin-stdlib-jdk8", version.ref = "kotlin_version" }
-kotlin-stdlib-jdk7 = { module = "org.jetbrains.kotlin:kotlin-stdlib-jdk7", version.ref = "kotlin_version" }
-kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin_version" }
+kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib-jdk8", version.ref = "kotlin_version" }
 kotlin-protobuf = { module = "org.jetbrains.kotlinx:kotlinx-serialization-protobuf", version.ref = "serialization_version" }
 kotlin-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization_version" }
 
@@ -27,9 +24,8 @@ coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-androi
 injekt-core = { module = "com.github.mihonapp:injekt", version = "91edab2317" }
 jsoup = { module = "org.jsoup:jsoup", version = "1.18.1" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp_version" }
-androidx-preference = { module = "androidx.preference:preference", version = "1.2.1" }
-androidx-annotation = { module = "androidx.annotation:annotation", version = "1.7.1" }
+quickjs = { module = "app.cash.quickjs:quickjs-android", version = "0.9.2" }
+jsunpacker = { module = "dev.datlag.jsunpacker:jsunpacker", version = "1.0.1" }
 
 [bundles]
-provided = ["kotlin-stdlib", "kotlin-stdlib-jdk8", "kotlin-stdlib-jdk7", "kotlin-reflect", "coroutines-core", "coroutines-android", "injekt-core", "okhttp", "jsoup", "aniyomi-lib", "androidx-preference", "androidx-annotation", "kotlin-protobuf", "kotlin-json"]
-common = []
+common = ["kotlin-stdlib", "coroutines-core", "coroutines-android", "injekt-core", "kotlin-protobuf", "kotlin-json", "jsoup", "okhttp", "aniyomi-lib", "quickjs"]
