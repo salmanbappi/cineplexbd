@@ -1,7 +1,7 @@
 ext {
     extName = 'Cineplex BD'
     extClass = '.CineplexBD'
-    extVersionCode = 1006
+    extVersionCode = 1007
     baseUrl = 'http://cineplexbd.net'
 }
 
