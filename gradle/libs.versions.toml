@@ -4,7 +4,7 @@ agp_version = "8.2.2"
 coroutines_version = "1.8.1"
 kotlin_version = "1.9.24"
 okhttp_version = "5.0.0-alpha.16"
-serialization_version = "1.6.3"
+serialization_version = "1.5.1"
 
 [libraries]
 gradle-agp = { module = "com.android.tools.build:gradle", version.ref = "agp_version" }
