@@ -9,4 +9,8 @@ apply from: "../common.gradle"
 
 dependencies {
     implementation(project(":core"))
+    
+    val libs = versionCatalogs.named("libs")
+    compileOnly(libs.findBundle("provided").get())
+    compileOnly(libs.findBundle("common").get())
 }
