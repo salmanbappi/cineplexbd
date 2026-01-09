@@ -6,3 +6,7 @@ ext {
 }
 
 apply from: "../common.gradle"
+
+dependencies {
+    implementation(project(":core"))
+}
