@@ -3,6 +3,12 @@ apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlinx-serialization'
 
+repositories {
+    google()
+    mavenCentral()
+    maven { url = uri("https://jitpack.io") }
+}
+
 android {
     compileSdk 34
 
@@ -34,5 +40,4 @@ android {
 
 dependencies {
     implementation(project(":core"))
-    compileOnly("com.github.aniyomi:aniyomi-extensions-lib:1.0") 
 }
