@@ -32,36 +32,50 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private val json: Json by lazy { Injekt.get() }
 
-    // Use search for popular/latest to support pagination and "All" listing
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search.php?q=&page=$page")
-
     override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
-
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         var category = ""
-        var type = ""
+        var isTv = false
 
         for (filter in filters) {
             when (filter) {
-                is CategoryFilter -> category = filter.toUriPart()
-                is TypeFilter -> type = filter.toUriPart()
+                is MovieCategoryFilter -> {
+                    if (filter.state != 0) {
+                        category = filter.toUriPart()
+                        isTv = false
+                    }
+                }
+                is TvCategoryFilter -> {
+                    if (filter.state != 0) {
+                        category = filter.toUriPart()
+                        isTv = true
+                    }
+                }
+                is AnimationCategoryFilter -> {
+                    if (filter.state != 0) {
+                        category = filter.toUriPart()
+                        isTv = true
+                    }
+                }
+                is ShowsCategoryFilter -> {
+                    if (filter.state != 0) {
+                        category = filter.toUriPart()
+                        isTv = true
+                    }
+                }
                 else -> {}
             }
         }
 
-        // Specific category logic
         if (category.isNotEmpty()) {
             val cleanCategory = URLEncoder.encode(category, "UTF-8")
-            val baseEndpoint = if (type == "tv" || category.contains("Series") || category.contains("Shows")) {
-                "tcategory.php"
-            } else {
-                "category.php"
-            }
-            return GET("$baseUrl/$baseEndpoint?category=$cleanCategory&page=$page")
+            val endpoint = if (isTv) "tcategory.php" else "category.php"
+            return GET("$baseUrl/$endpoint?category=$cleanCategory&page=$page")
         }
 
         return GET("$baseUrl/search.php?q=$encodedQuery&page=$page")
@@ -71,22 +85,30 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         val doc = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
         
-        doc.select("a[href^='view.php'], a[href^='watch.php'], a[href^='tview.php']").forEach { element ->
-            animeList.add(parseAnimeItem(element))
+        doc.select("a[href*='view.php'], a[href*='watch.php'], a[href*='tview.php'], .movie-card a").forEach { element ->
+            val item = parseAnimeItem(element)
+            if (item.title != "Unknown Title") {
+                animeList.add(item)
+            }
         }
         
-        // Pagination: Check for a "Next" button or standard pagination links
         val hasNextPage = doc.select("ul.pagination li.active + li a, a:contains(Next), a:contains(»), a.next").isNotEmpty()
-        
         return AnimesPage(animeList.distinctBy { it.url }, hasNextPage)
     }
 
     private fun parseAnimeItem(element: Element): SAnime {
         return SAnime.create().apply {
             url = element.attr("href")
-            val titleEl = element.selectFirst("span.truncate, div.text-sm, div.cp-title, h2, .card-title")
-            title = titleEl?.text() ?: element.selectFirst("img")?.attr("alt") ?: "Unknown Title"
-            thumbnail_url = element.selectFirst("img")?.attr("src")?.let {
+            val titleEl = element.selectFirst("span.truncate, div.text-sm, div.cp-title, h2, .card-title, .title")
+            val posterImg = element.selectFirst("img.poster, img[alt~=(?i)^(?!IMDb$).*]")
+            title = titleEl?.text() ?: posterImg?.attr("alt") ?: "Unknown Title"
+            
+            val rawImg = posterImg?.attr("data-src")?.takeIf { it.isNotEmpty() }
+                ?: posterImg?.attr("src")
+                ?: element.selectFirst("img")?.attr("data-src")
+                ?: element.selectFirst("img")?.attr("src")
+
+            thumbnail_url = rawImg?.let {
                 if (it.startsWith("http")) it else "$baseUrl/${it.trimStart('/')}"
             }
         }
@@ -102,11 +124,12 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         return SAnime.create().apply {
             val rawTitle = doc.selectFirst("h1, .movie-title, title")?.text()?.replace(" — Watch", "") ?: ""
             title = rawTitle
-            description = doc.selectFirst("p.leading-relaxed, #synopsis")?.text() ?: ""
-            val genreStr = doc.select("div.ganre-wrapper a, .meta-cat").joinToString { it.text() }
-            genre = genreStr
+            description = doc.selectFirst("p.leading-relaxed, #synopsis, .description")?.text() ?: ""
+            genre = doc.select("div.ganre-wrapper a, .meta-cat, .genre a").joinToString { it.text() }
             status = SAnime.COMPLETED
-            thumbnail_url = doc.selectFirst("img.poster, .tvCard img")?.attr("src")?.let {
+            val detailsImg = doc.selectFirst("img.poster, .tvCard img, .movie-poster img")
+            val rawDetailsImg = detailsImg?.attr("data-src")?.takeIf { it.isNotEmpty() } ?: detailsImg?.attr("src")
+            thumbnail_url = rawDetailsImg?.let {
                 if (it.startsWith("http")) it else "$baseUrl/${it.trimStart('/')}"
             }
         }
@@ -122,7 +145,6 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         val episodes = mutableListOf<SEpisode>()
 
         if (url.contains("view.php") || url.contains("tview.php")) {
-            // Movie Logic
             val id = url.substringAfter("id=")
             episodes.add(SEpisode.create().apply {
                 name = "Movie"
@@ -131,9 +153,12 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
             })
         } else if (url.contains("watch.php")) {
             val doc = response.asJsoup()
-            val id = url.substringAfter("id=").substringBefore("&")
+            val id = if (url.contains("series_id=")) {
+                url.substringAfter("series_id=").substringBefore("&")
+            } else {
+                url.substringAfter("id=").substringBefore("&")
+            }
             
-            // Find all seasons
             val seasonOptions = doc.select("select[name=season] option")
             val seasons = if (seasonOptions.isNotEmpty()) {
                 seasonOptions.map { it.attr("value") }
@@ -141,64 +166,48 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
                 listOf("1")
             }
 
-            // Fetch episodes for EACH season
             seasons.forEach { season ->
                 try {
                     val metaUrl = "$baseUrl/watch.php?id=$id&season=$season&meta=1"
                     val metaResponse = client.newCall(GET(metaUrl, headers)).execute()
                     val metaJson = json.decodeFromString<JsonObject>(metaResponse.body.string())
                     
-                    val epsObj = metaJson["episodes"]?.jsonObject
-                    // Convert to list to sort by episode number/key within the season
-                    val seasonEps = epsObj?.entries?.mapNotNull { (key, value) ->
+                    metaJson["episodes"]?.jsonObject?.entries?.mapNotNull { (key, value) ->
                         try {
                             val epJson = value.jsonObject
                             val rawName = epJson["title"]?.jsonPrimitive?.content ?: "Episode $key"
                             val epPath = epJson["path"]?.jsonPrimitive?.content ?: ""
                             
-                            // Try to parse episode number from JSON or key
                             var epNum = epJson["episode_number"]?.jsonPrimitive?.content?.toFloatOrNull() 
                                 ?: key.toFloatOrNull() 
                                 ?: 0f
                             
-                            // Fallback: Extract from name if 0 (e.g. S01E05)
                             if (epNum == 0f) {
                                 val match = Regex("""(?i)E(\d+)""").find(rawName)
                                 epNum = match?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
                             }
 
                             SEpisode.create().apply {
-                                name = rawName
-                                episode_number = epNum
+                                name = if (seasons.size > 1) "S$season $rawName" else rawName
+                                episode_number = epNum + (season.toIntOrNull() ?: 0) * 1000f
                                 this.url = epPath
                             }
                         } catch (e: Exception) { null }
-                    }?.sortedBy { it.episode_number } // Sort episodes WITHIN the season
-
-                    if (seasonEps != null) {
-                        episodes.addAll(seasonEps)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                    }?.sortedBy { it.episode_number }?.let { episodes.addAll(it) }
+                } catch (e: Exception) {}
             }
         }
-        
-        // DO NOT sort the final list globally. Keep Season 1 -> Season 2 order.
-        return episodes
+        return episodes.reversed()
     }
 
     override fun videoListRequest(episode: SEpisode): Request {
-        if (episode.url.startsWith("http")) {
-            return GET(episode.url, headers)
-        }
+        if (episode.url.startsWith("http")) return GET(episode.url, headers)
         val url = if (episode.url.startsWith("/")) episode.url else "/${episode.url}"
         return GET(baseUrl + url, headers)
     }
 
     override fun videoListParse(response: Response): List<Video> {
         val url = response.request.url.toString()
-        
         if (url.endsWith(".mp4") || url.endsWith(".mkv") || url.contains("/Data/")) {
             return listOf(Video(url, "Direct", url))
         }
@@ -210,40 +219,43 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
             val finalUrl = if (videoUrl.startsWith("http")) videoUrl else "$baseUrl/${videoUrl.trimStart('/')}"
             return listOf(Video(finalUrl, "Original", finalUrl))
         }
-        
         return emptyList()
     }
 
-    // Filters
     override fun getFilterList() = AnimeFilterList(
-        TypeFilter(),
-        CategoryFilter()
+        AnimeFilter.Header("Note: Only one category group works at a time"),
+        MovieCategoryFilter(),
+        TvCategoryFilter(),
+        AnimationCategoryFilter(),
+        ShowsCategoryFilter()
     )
 
-    private class TypeFilter : AnimeFilter.Select<String>("Type", arrayOf("All", "Movies", "TV Series")) {
-        fun toUriPart() = when(state) {
-            1 -> "movie"
-            2 -> "tv"
-            else -> ""
-        }
+    private abstract class SelectFilter(name: String, values: Array<String>) : AnimeFilter.Select<String>(name, values) {
+        fun toUriPart() = if (state == 0) "" else values[state]
     }
 
-    private class CategoryFilter : AnimeFilter.Select<String>("Category", arrayOf(
-        "Any",
-        "3D Movies", "4K Movies", "Animation", "Anime", "Bangla", "Bangla Dubbed", "Bangla Movies",
+    private class MovieCategoryFilter : SelectFilter("Movies", arrayOf(
+        "Any", "3D Movies", "4K Movies", "Animation", "Anime", "Bangla", "Bangla Dubbed", "Bangla Movies",
         "Chinese", "Documentaries", "Dual Audio", "English", "Exclusive Full HD", "Foreign",
         "Hindi", "Indonesian", "Japanese", "Kids Cartoon", "Korean", "Pakistani", "Punjabi", "Romance",
         "Hindi Dubbed/Chinees Movies", "Hindi Dubbed/English Movies", "Hindi Dubbed/Indonesian Movies",
-        "Hindi Dubbed/Japanese Movies", "Hindi Dubbed/Korean Movies", "Hindi Dubbed/Tamil Movies",
-        "Animation Series", "Bangla Animation", "Hindi Animation", "English Animation", "Others Animation",
-        "Award Shows", "Bangla Shows", "English Shows", "Hindi Shows", "Others Shows",
-        "Bangla Series", "Bangla Drama", "Entertainment", "Indian Bangla", "Indian Bangla Drama",
-        "Documentary", "Islamic Series", "Bangla Dubbed", "Hindi Dubbed",
+        "Hindi Dubbed/Japanese Movies", "Hindi Dubbed/Korean Movies", "Hindi Dubbed/Tamil Movies"
+    ))
+
+    private class TvCategoryFilter : SelectFilter("TV Series", arrayOf(
+        "Any", "Bangla Series", "Bangla Drama", "Indian Bangla", "Indian Bangla Drama",
         "Web Series", "Hindi Series", "Pakistani Series", "English Series", "Korean Series", "Japanese Series", "Others Series",
-        "WWE", "AEW Wrestling", "WWE Wrestling"
-    )) {
-        fun toUriPart() = if (state == 0) "" else values[state]
-    }
+        "Islamic Series", "Bangla Dubbed", "Hindi Dubbed", "Bangla"
+    ))
+
+    private class AnimationCategoryFilter : SelectFilter("Animation & Cartoon", arrayOf(
+        "Any", "Animation Series", "Bangla Animation", "Hindi Animation", "English Animation", "Others Animation"
+    ))
+
+    private class ShowsCategoryFilter : SelectFilter("Shows & Others", arrayOf(
+        "Any", "Award Shows", "Bangla Shows", "English Shows", "Hindi Shows", "Others Shows",
+        "WWE", "AEW Wrestling", "WWE Wrestling", "Entertainment", "Documentary"
+    ))
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {}
 }
