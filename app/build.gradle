@@ -8,9 +8,8 @@ ext {
 apply from: "../common.gradle"
 
 dependencies {
-    implementation(project(":core"))
+    implementation project(":core")
     
-    val libs = versionCatalogs.named("libs")
-    compileOnly(libs.findBundle("provided").get())
-    compileOnly(libs.findBundle("common").get())
+    compileOnly libs.bundles.provided
+    compileOnly libs.bundles.common
 }
