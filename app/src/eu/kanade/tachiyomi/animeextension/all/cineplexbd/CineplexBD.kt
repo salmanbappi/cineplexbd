@@ -119,7 +119,11 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.asJsoup()
         return SAnime.create().apply {
-            title = doc.selectFirst("h1, .movie-title, title")?.text()?.replace(" — Watch", "") ?: ""
+            val rawTitle = doc.selectFirst("h1, .movie-title, title")?.text()?.replace(" — Watch", "") ?: ""
+            // Check for 4K in badges or title
+            val is4k = doc.select(".meta-badge").any { it.text().contains("4K", true) } || rawTitle.contains("4K", true)
+            title = if (is4k && !rawTitle.contains("4K", true)) "$rawTitle (4K)" else rawTitle
+            
             description = doc.selectFirst("p.leading-relaxed, #synopsis")?.text() ?: ""
             genre = doc.select("div.ganre-wrapper a, .meta-cat").joinToString { it.text() }
             status = SAnime.COMPLETED
@@ -142,29 +146,63 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
                 this.url = "/player.php?id=$id"
             })
         } else if (url.contains("watch.php")) {
-            // Series Logic: Use the meta API
+            val doc = response.asJsoup()
             val id = url.substringAfter("id=").substringBefore("&")
-            val metaUrl = "$baseUrl/watch.php?id=$id&meta=1"
-            val metaResponse = client.newCall(GET(metaUrl, headers)).execute()
-            val metaJson = json.decodeFromString<JsonObject>(metaResponse.body.string())
             
-            val epsObj = metaJson["episodes"]?.jsonObject
-            epsObj?.entries?.forEach { (key, value) ->
-                val epJson = value.jsonObject
-                episodes.add(SEpisode.create().apply {
-                    name = epJson["title"]?.jsonPrimitive?.content ?: "Episode $key"
-                    // Try to parse episode number from key or content
-                    val epNum = epJson["episode_number"]?.jsonPrimitive?.content?.toFloatOrNull() 
-                        ?: key.toFloatOrNull() 
-                        ?: 0f
-                    episode_number = epNum
-                    // We store the direct path in URL
-                    this.url = epJson["path"]?.jsonPrimitive?.content ?: ""
-                })
+            // Find all seasons
+            val seasonOptions = doc.select("select[name=season] option")
+            val seasons = if (seasonOptions.isNotEmpty()) {
+                seasonOptions.map { it.attr("value") }
+            } else {
+                listOf("1") // Default to season 1 if no selector
+            }
+
+            // Fetch episodes for EACH season
+            seasons.forEach { season ->
+                try {
+                    val metaUrl = "$baseUrl/watch.php?id=$id&season=$season&meta=1"
+                    val metaResponse = client.newCall(GET(metaUrl, headers)).execute()
+                    val metaJson = json.decodeFromString<JsonObject>(metaResponse.body.string())
+                    
+                    val epsObj = metaJson["episodes"]?.jsonObject
+                    epsObj?.entries?.forEach { (key, value) ->
+                        val epJson = value.jsonObject
+                        episodes.add(SEpisode.create().apply {
+                            val rawName = epJson["title"]?.jsonPrimitive?.content ?: "Episode $key"
+                            name = cleanEpisodeName(rawName)
+                            
+                            val epNum = epJson["episode_number"]?.jsonPrimitive?.content?.toFloatOrNull() 
+                                ?: key.toFloatOrNull() 
+                                ?: 0f
+                            episode_number = epNum
+                            this.url = epJson["path"]?.jsonPrimitive?.content ?: ""
+                        })
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
         
         return episodes.sortedByDescending { it.episode_number }
+    }
+
+    private fun cleanEpisodeName(rawName: String): String {
+        // Example: Loki.S01E01.Glorious.Purpose.1080p.10bit.WEBRip...
+        // Target: S01E01 Glorious Purpose
+        try {
+            // Check for SxxExx pattern
+            val regex = Regex("""(?i)(S\d+E\d+)(.*?)(\d{3,4}p|\d+bit|WEBRip|HEVC|x264|x265)""")
+            val match = regex.find(rawName)
+            if (match != null) {
+                val sXeX = match.groupValues[1]
+                val titlePart = match.groupValues[2].replace(".", " ").trim()
+                return "$sXeX $titlePart"
+            }
+        } catch (e: Exception) {
+            return rawName
+        }
+        return rawName.replace(".", " ")
     }
 
     override fun videoListParse(response: Response): List<Video> {
