@@ -12,7 +12,7 @@ repositories {
 android {
     compileSdk 34
 
-    namespace "eu.kanade.tachiyomi.animeextension"
+    namespace "eu.kanade.tachiyomi.animeextension.all.cineplexbd"
     
     sourceSets {
         main {
