@@ -4,6 +4,12 @@ plugins {
     id("kotlinx-serialization")
 }
 
+repositories {
+    google()
+    mavenCentral()
+    maven { url = uri("https://jitpack.io") }
+}
+
 android {
     compileSdk = AndroidConfig.compileSdk
 
