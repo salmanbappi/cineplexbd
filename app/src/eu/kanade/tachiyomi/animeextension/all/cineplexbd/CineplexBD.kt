@@ -71,37 +71,46 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         return GET(baseUrl + url, headers)
     }
 
+    override fun videoListRequest(episode: SEpisode): Request {
+        if (episode.url.startsWith("http")) {
+            return GET(episode.url, headers)
+        }
+        val url = if (episode.url.startsWith("/")) episode.url else "/${episode.url}"
+        return GET(baseUrl + url, headers)
+    }
+
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
-        return GET("$baseUrl/search.php?q=$encodedQuery")
+        var category = ""
+
+        for (filter in filters) {
+            if (filter is CategoryFilter) {
+                category = filter.toUriPart()
+            }
+        }
+
+        return if (category.isNotEmpty() && query.isEmpty()) {
+            val cleanCategory = URLEncoder.encode(category, "UTF-8")
+            // Determine if it's a TV category or Movie category for the base URL
+            // Using a heuristic or checking all known TV categories
+            if (category.contains("Series") || category.contains("Shows") || category.contains("WWE") || category.contains("Wrestling")) {
+                GET("$baseUrl/tcategory.php?category=$cleanCategory")
+            } else {
+                GET("$baseUrl/category.php?category=$cleanCategory")
+            }
+        } else {
+            GET("$baseUrl/search.php?q=$encodedQuery")
+        }
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
-        val filters = if (response.request.tag() is AnimeFilterList) response.request.tag() as AnimeFilterList else AnimeFilterList()
         
         // Parse grid items (Movies and TV)
-        doc.select("a[href^='view.php'], a[href^='watch.php']").forEach { element ->
+        doc.select("a[href^='view.php'], a[href^='watch.php'], a[href^='tview.php']").forEach { element ->
             val item = parseAnimeItem(element)
-            val isMovie = item.url.contains("view.php")
-            val isSeries = item.url.contains("watch.php")
-            
-            // Filter logic
-            var include = true
-            for (filter in filters) {
-                if (filter is TypeFilter) {
-                    include = when (filter.toUriPart()) {
-                        "movies" -> isMovie
-                        "series" -> isSeries
-                        else -> true
-                    }
-                }
-            }
-            
-            if (include) {
-                animeList.add(item)
-            }
+            animeList.add(item)
         }
         
         return AnimesPage(animeList.distinctBy { it.url }, false)
@@ -144,8 +153,12 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
                 val epJson = value.jsonObject
                 episodes.add(SEpisode.create().apply {
                     name = epJson["title"]?.jsonPrimitive?.content ?: "Episode $key"
-                    episode_number = epJson["episode_number"]?.jsonPrimitive?.content?.toFloatOrNull() ?: key.toFloatOrNull() ?: 0f
-                    // We store the direct path in URL or keep it for videoListParse
+                    // Try to parse episode number from key or content
+                    val epNum = epJson["episode_number"]?.jsonPrimitive?.content?.toFloatOrNull() 
+                        ?: key.toFloatOrNull() 
+                        ?: 0f
+                    episode_number = epNum
+                    // We store the direct path in URL
                     this.url = epJson["path"]?.jsonPrimitive?.content ?: ""
                 })
             }
@@ -157,8 +170,8 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun videoListParse(response: Response): List<Video> {
         val url = response.request.url.toString()
         
-        // If it's a direct mp4 path from the meta API
-        if (url.endsWith(".mp4") || url.endsWith(".mkv")) {
+        // If it's a direct mp4 path from the meta API (Series)
+        if (url.endsWith(".mp4") || url.endsWith(".mkv") || url.contains("/Data/")) {
             return listOf(Video(url, "Direct", url))
         }
 
@@ -176,11 +189,25 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
 
     // Filters
     override fun getFilterList() = AnimeFilterList(
-        TypeFilter()
+        CategoryFilter()
     )
 
-    private class TypeFilter : AnimeFilter.Select<String>("Type", arrayOf("All", "Movies", "TV Series")) {
-        fun toUriPart() = values[state].lowercase().replace("tv ", "")
+    private class CategoryFilter : AnimeFilter.Select<String>("Category", arrayOf(
+        "Show All",
+        "3D Movies", "4K Movies", "Animation", "Anime", "Bangla", "Bangla Dubbed", "Bangla Movies",
+        "Chinese", "Documentaries", "Dual Audio", "English", "Exclusive Full HD", "Foreign",
+        "Hindi", "Indonesian", "Japanese", "Kids Cartoon", "Korean", "Pakistani", "Punjabi", "Romance",
+        "Hindi Dubbed/Chinees Movies", "Hindi Dubbed/English Movies", "Hindi Dubbed/Indonesian Movies",
+        "Hindi Dubbed/Japanese Movies", "Hindi Dubbed/Korean Movies", "Hindi Dubbed/Tamil Movies",
+        "Animation Series", "Bangla Animation", "Hindi Animation", "English Animation", "Others Animation",
+        "Award Shows", "Bangla Shows", "English Shows", "Hindi Shows", "Others Shows",
+        "Bangla Series", "Bangla Drama", "Entertainment", "Indian Bangla", "Indian Bangla Drama",
+        "Documentary",
+        "Islamic Series", "Bangla Dubbed", "Hindi Dubbed",
+        "Web Series", "Hindi Series", "Pakistani Series", "English Series", "Korean Series", "Japanese Series", "Others Series",
+        "WWE", "AEW Wrestling", "WWE Wrestling"
+    )) {
+        fun toUriPart() = if (values[state] == "Show All") "" else values[state]
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {}
