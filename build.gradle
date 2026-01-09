@@ -1,0 +1,8 @@
+ext {
+    extName = 'Cineplex BD'
+    extClass = '.CineplexBD'
+    extVersionCode = 1
+    baseUrl = 'http://cineplexbd.net'
+}
+
+apply from: "$rootDir/common.gradle"
