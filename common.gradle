@@ -15,10 +15,10 @@ android {
     namespace "eu.kanade.tachiyomi.animeextension"
     
     sourceSets {
-        named("main") {
+        main {
             manifest.srcFile("src/main/AndroidManifest.xml")
-            java.setSrcDirs(listOf("src"))
-            res.setSrcDirs(listOf("res"))
+            java.srcDirs = ['src']
+            res.srcDirs = ['res']
         }
     }
 
