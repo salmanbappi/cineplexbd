@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.all.cineplexbd
 
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
+import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
@@ -60,12 +61,51 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
+    override fun animeDetailsRequest(anime: SAnime): Request {
+        val url = if (anime.url.startsWith("/")) anime.url else "/${anime.url}"
+        return GET(baseUrl + url, headers)
+    }
+
+    override fun episodeListRequest(anime: SAnime): Request {
+        val url = if (anime.url.startsWith("/")) anime.url else "/${anime.url}"
+        return GET(baseUrl + url, headers)
+    }
+
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         return GET("$baseUrl/search.php?q=$encodedQuery")
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val doc = response.asJsoup()
+        val animeList = mutableListOf<SAnime>()
+        val filters = if (response.request.tag is AnimeFilterList) response.request.tag as AnimeFilterList else AnimeFilterList.empty()
+        
+        // Parse grid items (Movies and TV)
+        doc.select("a[href^='view.php'], a[href^='watch.php']").forEach { element ->
+            val item = parseAnimeItem(element)
+            val isMovie = item.url.contains("view.php")
+            val isSeries = item.url.contains("watch.php")
+            
+            // Filter logic
+            var include = true
+            for (filter in filters) {
+                if (filter is TypeFilter) {
+                    include = when (filter.toUriPart()) {
+                        "movies" -> isMovie
+                        "series" -> isSeries
+                        else -> true
+                    }
+                }
+            }
+            
+            if (include) {
+                animeList.add(item)
+            }
+        }
+        
+        return AnimesPage(animeList.distinctBy { it.url }, false)
+    }
 
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.asJsoup()
@@ -90,7 +130,7 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
             episodes.add(SEpisode.create().apply {
                 name = "Movie"
                 episode_number = 1f
-                this.url = "player.php?id=$id"
+                this.url = "/player.php?id=$id"
             })
         } else if (url.contains("watch.php")) {
             // Series Logic: Use the meta API
@@ -132,6 +172,15 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         }
         
         return emptyList()
+    }
+
+    // Filters
+    override fun getFilterList() = AnimeFilterList(
+        TypeFilter()
+    )
+
+    private class TypeFilter : AnimeFilter.Select<String>("Type", arrayOf("All", "Movies", "TV Series")) {
+        fun toUriPart() = values[state].lowercase().replace("tv ", "")
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {}
