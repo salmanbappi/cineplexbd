@@ -1,0 +1,73 @@
+name: Build CineplexBD
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build APK
+        run: ./gradlew assembleRelease
+        env:
+          SIGNING_KEY_ALIAS: dflix
+          SIGNING_KEY_PASSWORD: dhakaflix123
+          SIGNING_STORE_PASSWORD: dhakaflix123
+
+      - name: Get Version
+        run: |
+          VERSION_CODE=$(grep "extVersionCode =" app/build.gradle | awk '{print $3}' | tr -d '"')
+          VERSION_NAME="14.$VERSION_CODE"
+          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
+          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION_NAME }}
+          name: Release v${{ env.VERSION_NAME }}
+          files: app/build/outputs/apk/release/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to Extensions Repo
+        run: |
+          REPO_DIR="extensions-repo-tmp"
+          git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/salmanbappi/extensions-repo.git $REPO_DIR
+          
+          PKG_NAME="eu.kanade.tachiyomi.animeextension.all.cineplexbd"
+          VERSION_CODE="${{ env.VERSION_CODE }}"
+          VERSION_NAME="${{ env.VERSION_NAME }}"
+          TARGET_NAME="$PKG_NAME-v$VERSION_NAME-c$VERSION_CODE.apk"
+          
+          cp app/build/outputs/apk/release/*.apk $REPO_DIR/$TARGET_NAME
+          
+          cd $REPO_DIR
+          git config user.name "Gemini Automation"
+          git config user.email "gemini@automation.bot"
+          git add $TARGET_NAME
+          git commit -m "Update Cineplex BD to v$VERSION_NAME"
+          git push
