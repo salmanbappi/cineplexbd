@@ -120,12 +120,15 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         val doc = response.asJsoup()
         return SAnime.create().apply {
             val rawTitle = doc.selectFirst("h1, .movie-title, title")?.text()?.replace(" — Watch", "") ?: ""
-            // Check for 4K in badges or title
-            val is4k = doc.select(".meta-badge").any { it.text().contains("4K", true) } || rawTitle.contains("4K", true)
-            title = if (is4k && !rawTitle.contains("4K", true)) "$rawTitle (4K)" else rawTitle
-            
             description = doc.selectFirst("p.leading-relaxed, #synopsis")?.text() ?: ""
             genre = doc.select("div.ganre-wrapper a, .meta-cat").joinToString { it.text() }
+            
+            // Check for 4K in title, genre, or badges
+            val is4k = rawTitle.contains("4K", true) || 
+                       genre.contains("4K", true) ||
+                       doc.select(".meta-badge, .rounded.shadow-md").any { it.text().contains("4K", true) }
+
+            title = if (is4k && !rawTitle.contains("4K", true)) "$rawTitle (4K)" else rawTitle
             status = SAnime.COMPLETED
             thumbnail_url = doc.selectFirst("img.poster, .tvCard img")?.attr("src")?.let {
                 if (it.startsWith("http")) it else "$baseUrl/$it"
@@ -184,7 +187,7 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
             }
         }
         
-        return episodes.sortedByDescending { it.episode_number }
+        return episodes.sortedBy { it.episode_number }
     }
 
     private fun cleanEpisodeName(rawName: String): String {
