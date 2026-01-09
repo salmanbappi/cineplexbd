@@ -13,6 +13,12 @@ android {
     }
 }
 
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    kotlinOptions {
+        freeCompilerArgs += "-Xskip-metadata-version-check"
+    }
+}
+
 dependencies {
     val libs = versionCatalogs.named("libs")
     compileOnly(libs.findBundle("provided").get())
