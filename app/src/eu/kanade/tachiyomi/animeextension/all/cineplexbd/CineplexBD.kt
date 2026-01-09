@@ -121,11 +121,12 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         return SAnime.create().apply {
             val rawTitle = doc.selectFirst("h1, .movie-title, title")?.text()?.replace(" — Watch", "") ?: ""
             description = doc.selectFirst("p.leading-relaxed, #synopsis")?.text() ?: ""
-            genre = doc.select("div.ganre-wrapper a, .meta-cat").joinToString { it.text() }
+            val genreStr = doc.select("div.ganre-wrapper a, .meta-cat").joinToString { it.text() }
+            genre = genreStr
             
             // Check for 4K in title, genre, or badges
             val is4k = rawTitle.contains("4K", true) || 
-                       genre.contains("4K", true) ||
+                       genreStr.contains("4K", true) ||
                        doc.select(".meta-badge, .rounded.shadow-md").any { it.text().contains("4K", true) }
 
             title = if (is4k && !rawTitle.contains("4K", true)) "$rawTitle (4K)" else rawTitle
