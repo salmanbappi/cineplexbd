@@ -44,7 +44,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION_NAME }}
-          name: Release v${{ env.VERSION_NAME }}
+          name: Cineplex BD v${{ env.VERSION_NAME }}
           files: app/build/outputs/apk/release/*.apk
           draft: false
           prerelease: false

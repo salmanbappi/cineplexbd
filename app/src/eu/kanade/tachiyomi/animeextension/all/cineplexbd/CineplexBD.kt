@@ -126,6 +126,8 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
             
             // Check for 4K in title, genre, or badges
             val is4k = rawTitle.contains("4K", true) || 
+                       rawTitle.contains("2160p", true) ||
+                       rawTitle.contains("UHD", true) ||
                        genreStr.contains("4K", true) ||
                        doc.select(".meta-badge, .rounded.shadow-md").any { it.text().contains("4K", true) }
 
@@ -175,9 +177,16 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
                             val rawName = epJson["title"]?.jsonPrimitive?.content ?: "Episode $key"
                             name = cleanEpisodeName(rawName)
                             
-                            val epNum = epJson["episode_number"]?.jsonPrimitive?.content?.toFloatOrNull() 
+                            var epNum = epJson["episode_number"]?.jsonPrimitive?.content?.toFloatOrNull() 
                                 ?: key.toFloatOrNull() 
                                 ?: 0f
+                            
+                            // Fallback: Extract from name if 0
+                            if (epNum == 0f) {
+                                val match = Regex("""(?i)E(\d+)""").find(name)
+                                epNum = match?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
+                            }
+
                             episode_number = epNum
                             this.url = epJson["path"]?.jsonPrimitive?.content ?: ""
                         })
