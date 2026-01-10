@@ -40,6 +40,10 @@ jobs:
           echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
           echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
 
+      - name: Rename APK
+        run: |
+          mv app/build/outputs/apk/release/*.apk app/build/outputs/apk/release/eu.kanade.tachiyomi.animeextension.all.cineplexbd-v${{ env.VERSION_NAME }}-c${{ env.VERSION_CODE }}.apk
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -53,27 +57,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # - name: Push to Extensions Repo
-      #   run: |
-      #     REPO_DIR="extensions-repo-tmp"
-      #     # Use GH_PAT if available, otherwise fallback to GITHUB_TOKEN (might only have read access)
-      #     AUTH_TOKEN="${{ secrets.GH_PAT }}"
-      #     if [ -z "$AUTH_TOKEN" ]; then
-      #       AUTH_TOKEN="${{ secrets.GITHUB_TOKEN }}"
-      #     fi
-      #     
-      #     git clone https://x-access-token:$AUTH_TOKEN@github.com/salmanbappi/extensions-repo.git $REPO_DIR
-      #     
-      #     PKG_NAME="eu.kanade.tachiyomi.animeextension.all.cineplexbd"
-      #     VERSION_CODE="${{ env.VERSION_CODE }}"
-      #     VERSION_NAME="${{ env.VERSION_NAME }}"
-      #     TARGET_NAME="$PKG_NAME-v$VERSION_NAME-c$VERSION_CODE.apk"
-      #     
-      #     cp app/build/outputs/apk/release/*.apk $REPO_DIR/$TARGET_NAME
-      #     
-      #     cd $REPO_DIR
-      #     git config user.name "Gemini Automation"
-      #     git config user.email "gemini@automation.bot"
-      #     git add $TARGET_NAME
-      #     git commit -m "Update Cineplex BD to v$VERSION_NAME" || exit 0
-      #     git push
+      - name: Update Extension Repo
+        run: |
+          # This requires a secret named 'GH_PAT' with repo scope
+          if [ -n "${{ secrets.GH_PAT }}" ]; then
+            git clone https://${{ secrets.GH_PAT }}@github.com/salmanbappi/extensions-repo.git repo_tmp
+            cp app/build/outputs/apk/release/*.apk repo_tmp/apk/
+            cd repo_tmp
+            python3 generate_repo.py
+            git add apk/*.apk index.min.json repo.json
+            git config user.name "GitHub Action"
+            git config user.email "action@github.com"
+            git commit -m "Update Cineplex BD to v${{ env.VERSION_NAME }}"
+            git push
+          else
+            echo "Secret 'PAT' not found. Skipping extension repo update."
+            echo "Please add a secret named 'PAT' with 'repo' scope to enable automatic repo updates."
+          fi
