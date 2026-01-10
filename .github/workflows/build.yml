@@ -16,6 +16,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Auto Bump Version
+        run: |
+          chmod +x .github/scripts/bump_gradle_version.sh
+          .github/scripts/bump_gradle_version.sh
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          git add app/build.gradle
+          git commit -m "Auto-bump version [skip ci]" || echo "No changes to commit"
+          git push origin master || echo "No changes to push"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
