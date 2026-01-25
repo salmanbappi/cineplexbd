@@ -34,9 +34,7 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     private val json: Json by lazy { Injekt.get() }
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/category.php?category=Exclusive%20Full%20HD&page=$page")
-    override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
-    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = "$baseUrl/search.php".toHttpUrlOrNull()!!.newBuilder()
@@ -139,7 +137,7 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val page = searchAnimeParse(response)
-        val filtered = page.anime.filterNot { 
+        val filtered = page.animes.filterNot { 
             it.title.contains("Bangla", ignoreCase = true) 
         }
         return AnimesPage(filtered, page.hasNextPage)
@@ -338,14 +336,14 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         "WWE", "AEW Wrestling", "WWE Wrestling", "Entertainment", "Documentary"
     ))
     
-    class YearFilter : AnimeFilter.Group<CheckBox>("Year", (2026 downTo 1900).map { CheckBox(it.toString()) })
-    class CheckBox(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
+    class YearFilter : AnimeFilter.Group<AnimeFilter.CheckBox>("Year", (2026 downTo 1900).map { MyCheckBox(it.toString()) })
+    class MyCheckBox(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
     
-    class GenreFilter : AnimeFilter.Group<CheckBox>("Genres", listOf(
+    class GenreFilter : AnimeFilter.Group<AnimeFilter.CheckBox>("Genres", listOf(
         "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", 
         "Drama", "Family", "Fantasy", "Film-Noir", "History", "Horror", "Music", "Musical", 
         "Mystery", "Romance", "Sci-Fi", "Short", "Sport", "Thriller", "War", "Western"
-    ).map { CheckBox(it) })
+    ).map { MyCheckBox(it) })
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {}
 }
