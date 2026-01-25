@@ -34,39 +34,9 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     private val json: Json by lazy { Injekt.get() }
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search.php?q=&year[]=2026&year[]=2025&page=$page")
-    override fun latestUpdatesRequest(page: Int): Request {
-        val offset = (page - 1) * 24
-        return GET("$baseUrl/fetch_more.php?offset=$offset")
-    }
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/search.php?q=&page=$page")
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        val jsonString = response.body.string()
-        if (jsonString.trim().startsWith("<")) {
-             // Fallback if the server returns HTML (e.g. error or empty)
-             return AnimesPage(emptyList(), false)
-        }
-        
-        val movies = try {
-            json.decodeFromString<List<JsonObject>>(jsonString)
-        } catch (e: Exception) {
-            return AnimesPage(emptyList(), false)
-        }
-
-        val animeList = movies.mapNotNull { movieJson ->
-            try {
-                SAnime.create().apply {
-                    val id = movieJson["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                    val type = movieJson["type"]?.jsonPrimitive?.content ?: "movie"
-                    url = if (type.equals("series", true)) "/tview.php?id=$id" else "/view.php?id=$id"
-                    title = movieJson["title"]?.jsonPrimitive?.content ?: "Unknown"
-                    val posterPath = movieJson["poster"]?.jsonPrimitive?.content
-                    thumbnail_url = if (posterPath != null) "$baseUrl/$posterPath" else null
-                }
-            } catch (e: Exception) { null }
-        }
-
-        return AnimesPage(animeList, animeList.size >= 24)
-    }
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
@@ -127,8 +97,8 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
                  genre = doc.select("div.ganre-wrapper a, .meta-cat, .genre a").joinToString { it.text() }
             }
             
-            author = doc.select("div.text-sm:contains(Director:) span.font-semibold").text() ?: 
-                     doc.select("div:contains(Director:) span").text() ?:
+            // Strict author parsing to avoid metadata
+            author = doc.select("div.mt-4.text-sm:contains(Director:) span").text() ?: 
                      doc.select("a[href*='cast.php'][href*='Director']").text()
 
             // Status is generally Completed for movies
