@@ -33,8 +33,8 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private val json: Json by lazy { Injekt.get() }
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/category.php?category=Exclusive%20Full%20HD&page=$page")
-    override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search.php?q=&year[]=2026&year[]=2025&page=$page")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/search.php?q=&page=$page")
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = "$baseUrl/search.php".toHttpUrlOrNull()!!.newBuilder()
@@ -181,8 +181,8 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
                  genre = doc.select("div.ganre-wrapper a, .meta-cat, .genre a").joinToString { it.text() }
             }
             
-            author = doc.select("a[href*='cast.php'][href*='Director']").text() ?: 
-                     doc.select("div:contains(Director:) a").text() ?:
+            author = doc.select("div:contains(Director:) span").text() ?: 
+                     doc.select("a[href*='cast.php'][href*='Director']").text() ?: 
                      doc.select("div:contains(Director:)").text().substringAfter("Director:").trim()
 
             // Status is generally Completed for movies
