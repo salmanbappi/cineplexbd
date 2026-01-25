@@ -34,98 +34,46 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     private val json: Json by lazy { Injekt.get() }
 
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search.php?q=&year[]=2026&year[]=2025&page=$page")
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/search.php?q=&page=$page")
+    override fun latestUpdatesRequest(page: Int): Request {
+        val offset = (page - 1) * 24
+        return GET("$baseUrl/fetch_more.php?offset=$offset")
+    }
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val url = "$baseUrl/search.php".toHttpUrlOrNull()!!.newBuilder()
-            .addQueryParameter("q", query)
-            .addQueryParameter("page", page.toString())
-
-        var category = ""
-        var isTv = false
-
-        for (filter in filters) {
-            when (filter) {
-                is MovieCategoryFilter -> {
-                    if (filter.state != 0) {
-                        category = filter.toUriPart()
-                        isTv = false
-                    }
-                }
-                is TvCategoryFilter -> {
-                    if (filter.state != 0) {
-                        category = filter.toUriPart()
-                        isTv = true
-                    }
-                }
-                is AnimationCategoryFilter -> {
-                    if (filter.state != 0) {
-                        category = filter.toUriPart()
-                        isTv = true
-                    }
-                }
-                is ShowsCategoryFilter -> {
-                    if (filter.state != 0) {
-                        category = filter.toUriPart()
-                        isTv = true
-                    }
-                }
-                is YearFilter -> {
-                    filter.state.forEach { 
-                        if (it.state) {
-                            url.addQueryParameter("year[]", it.name)
-                        }
-                    }
-                }
-                is GenreFilter -> {
-                    filter.state.forEach {
-                        if (it.state) {
-                            url.addQueryParameter("genre[]", it.name)
-                        }
-                    }
-                }
-                else -> {}
-            }
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val jsonString = response.body.string()
+        if (jsonString.trim().startsWith("<")) {
+             // Fallback if the server returns HTML (e.g. error or empty)
+             return AnimesPage(emptyList(), false)
+        }
+        
+        val movies = try {
+            json.decodeFromString<List<JsonObject>>(jsonString)
+        } catch (e: Exception) {
+            return AnimesPage(emptyList(), false)
         }
 
-        if (category.isNotEmpty()) {
-            val cleanCategory = URLEncoder.encode(category, "UTF-8")
-            val endpoint = if (isTv) "tcategory.php" else "category.php"
-            // Category pages might not support complex filtering like search.php does, 
-            // but the user asked for filters. We'll prioritize search.php if filters are used,
-            // or fallback to category browsing if only category is selected.
-            // However, the current structure separates them. 
-            // Let's keep existing category logic but if other filters are present, we might need search.php.
-            // For now, preserving category behavior as it seems specific.
-            return GET("$baseUrl/$endpoint?category=$cleanCategory&page=$page")
+        val animeList = movies.mapNotNull { movieJson ->
+            try {
+                SAnime.create().apply {
+                    val id = movieJson["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                    val type = movieJson["type"]?.jsonPrimitive?.content ?: "movie"
+                    url = if (type.equals("series", true)) "/tview.php?id=$id" else "/view.php?id=$id"
+                    title = movieJson["title"]?.jsonPrimitive?.content ?: "Unknown"
+                    val posterPath = movieJson["poster"]?.jsonPrimitive?.content
+                    thumbnail_url = if (posterPath != null) "$baseUrl/$posterPath" else null
+                }
+            } catch (e: Exception) { null }
         }
 
-        return GET(url.build().toString())
+        return AnimesPage(animeList, animeList.size >= 24)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
         
-        doc.select("a[href*='view.php'], a[href*='watch.php'], a[href*='tview.php'], .movie-card a, a:has(.poster)").forEach { element ->
+        doc.select("a[href*='view.php'], a[href*='watch.php'], a[href*='tview.php'], .movie-card a, a:has(.poster), a:has(img[src*='uploads'])").forEach { element ->
             val item = parseAnimeItem(element)
-            // Filter out Bangla content from Popular/Latest (which use this parse method)
-            // assuming "Popular" is just searchAnimeParse with empty query.
-            val isBangla = item.title.contains("Bangla", ignoreCase = true) || 
-                           item.url.contains("Bangla", ignoreCase = true)
-            
-            // We only want to filter Bangla if it's NOT a specific Bangla search.
-            // But searchAnimeParse doesn't know the query. 
-            // We'll filter it if the request was likely 'Popular' or 'Latest' (no query usually).
-            // For now, applying the user's request "avoid bangle related movie or TV series in popular and latest section".
-            // Since we can't easily distinguish the context here without more state, 
-            // and the user said "don't remove it from any other places", 
-            // we should strictly be careful. 
-            // A safe bet: The user wants this globally in the list view? 
-            // "don't remove it from any other places" implies searches for Bangla should work.
-            // I will skip this filtering here and move it to popularAnimeParse/latestUpdatesParse 
-            // by refactoring them to use a separate parse method or filtering the result of this one.
-            
             if (item.title != "Unknown Title") {
                 animeList.add(item)
             }
@@ -135,16 +83,6 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList.distinctBy { it.url }, hasNextPage)
     }
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        val page = searchAnimeParse(response)
-        val filtered = page.animes.filterNot { 
-            it.title.contains("Bangla", ignoreCase = true) 
-        }
-        return AnimesPage(filtered, page.hasNextPage)
-    }
-
-    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
-
     private fun parseAnimeItem(element: Element): SAnime {
         return SAnime.create().apply {
             url = element.attr("href")
@@ -152,10 +90,18 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
             val posterImg = element.selectFirst("img.poster, .tvCard img, img[class*='poster'], img[src*='uploads/']")
             title = titleEl?.text() ?: posterImg?.attr("alt") ?: "Unknown Title"
             
-            val rawImg = posterImg?.attr("data-src")?.takeIf { it.isNotEmpty() }
+            var rawImg = posterImg?.attr("data-src")?.takeIf { it.isNotEmpty() }
                 ?: posterImg?.attr("src")
                 ?: element.selectFirst("img")?.attr("data-src")
                 ?: element.selectFirst("img")?.attr("src")
+            
+            if (rawImg.isNullOrEmpty()) {
+                 val style = element.selectFirst("div[style*='background-image']")?.attr("style")
+                 if (style != null && style.contains("url(")) {
+                     rawImg = style.substringAfter("url(").substringBefore(")")
+                         .replace("'", "").replace("\"", "")
+                 }
+            }
 
             thumbnail_url = rawImg?.let {
                 if (it.startsWith("http")) it else "$baseUrl/${it.trimStart('/')}"
@@ -181,9 +127,9 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
                  genre = doc.select("div.ganre-wrapper a, .meta-cat, .genre a").joinToString { it.text() }
             }
             
-            author = doc.select("div:contains(Director:) span").text() ?: 
-                     doc.select("a[href*='cast.php'][href*='Director']").text() ?: 
-                     doc.select("div:contains(Director:)").text().substringAfter("Director:").trim()
+            author = doc.select("div.text-sm:contains(Director:) span.font-semibold").text() ?: 
+                     doc.select("div:contains(Director:) span").text() ?:
+                     doc.select("a[href*='cast.php'][href*='Director']").text()
 
             // Status is generally Completed for movies
             status = SAnime.COMPLETED
