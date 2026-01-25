@@ -17,6 +17,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -32,13 +33,16 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private val json: Json by lazy { Injekt.get() }
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/search.php?q=&page=$page")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/category.php?category=Exclusive%20Full%20HD&page=$page")
     override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        val url = "$baseUrl/search.php".toHttpUrlOrNull()!!.newBuilder()
+            .addQueryParameter("q", query)
+            .addQueryParameter("page", page.toString())
+
         var category = ""
         var isTv = false
 
@@ -68,6 +72,20 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
                         isTv = true
                     }
                 }
+                is YearFilter -> {
+                    filter.state.forEach { 
+                        if (it.state) {
+                            url.addQueryParameter("year[]", it.name)
+                        }
+                    }
+                }
+                is GenreFilter -> {
+                    filter.state.forEach {
+                        if (it.state) {
+                            url.addQueryParameter("genre[]", it.name)
+                        }
+                    }
+                }
                 else -> {}
             }
         }
@@ -75,18 +93,41 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         if (category.isNotEmpty()) {
             val cleanCategory = URLEncoder.encode(category, "UTF-8")
             val endpoint = if (isTv) "tcategory.php" else "category.php"
+            // Category pages might not support complex filtering like search.php does, 
+            // but the user asked for filters. We'll prioritize search.php if filters are used,
+            // or fallback to category browsing if only category is selected.
+            // However, the current structure separates them. 
+            // Let's keep existing category logic but if other filters are present, we might need search.php.
+            // For now, preserving category behavior as it seems specific.
             return GET("$baseUrl/$endpoint?category=$cleanCategory&page=$page")
         }
 
-        return GET("$baseUrl/search.php?q=$encodedQuery&page=$page")
+        return GET(url.build().toString())
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
         
-        doc.select("a[href*='view.php'], a[href*='watch.php'], a[href*='tview.php'], .movie-card a").forEach { element ->
+        doc.select("a[href*='view.php'], a[href*='watch.php'], a[href*='tview.php'], .movie-card a, a:has(.poster)").forEach { element ->
             val item = parseAnimeItem(element)
+            // Filter out Bangla content from Popular/Latest (which use this parse method)
+            // assuming "Popular" is just searchAnimeParse with empty query.
+            val isBangla = item.title.contains("Bangla", ignoreCase = true) || 
+                           item.url.contains("Bangla", ignoreCase = true)
+            
+            // We only want to filter Bangla if it's NOT a specific Bangla search.
+            // But searchAnimeParse doesn't know the query. 
+            // We'll filter it if the request was likely 'Popular' or 'Latest' (no query usually).
+            // For now, applying the user's request "avoid bangle related movie or TV series in popular and latest section".
+            // Since we can't easily distinguish the context here without more state, 
+            // and the user said "don't remove it from any other places", 
+            // we should strictly be careful. 
+            // A safe bet: The user wants this globally in the list view? 
+            // "don't remove it from any other places" implies searches for Bangla should work.
+            // I will skip this filtering here and move it to popularAnimeParse/latestUpdatesParse 
+            // by refactoring them to use a separate parse method or filtering the result of this one.
+            
             if (item.title != "Unknown Title") {
                 animeList.add(item)
             }
@@ -96,11 +137,21 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(animeList.distinctBy { it.url }, hasNextPage)
     }
 
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val page = searchAnimeParse(response)
+        val filtered = page.anime.filterNot { 
+            it.title.contains("Bangla", ignoreCase = true) 
+        }
+        return AnimesPage(filtered, page.hasNextPage)
+    }
+
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
+
     private fun parseAnimeItem(element: Element): SAnime {
         return SAnime.create().apply {
             url = element.attr("href")
             val titleEl = element.selectFirst("span.truncate, div.text-sm, div.cp-title, h2, .card-title, .title")
-            val posterImg = element.selectFirst("img.poster, img[alt~=(?i)^(?!IMDb$).*]")
+            val posterImg = element.selectFirst("img.poster, .tvCard img, img[class*='poster'], img[src*='uploads/']")
             title = titleEl?.text() ?: posterImg?.attr("alt") ?: "Unknown Title"
             
             val rawImg = posterImg?.attr("data-src")?.takeIf { it.isNotEmpty() }
@@ -125,13 +176,39 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
             val rawTitle = doc.selectFirst("h1, .movie-title, title")?.text()?.replace(" — Watch", "") ?: ""
             title = rawTitle
             description = doc.selectFirst("p.leading-relaxed, #synopsis, .description")?.text() ?: ""
-            genre = doc.select("div.ganre-wrapper a, .meta-cat, .genre a").joinToString { it.text() }
+            
+            // Metadata parsing
+            genre = doc.select("span.chip:contains(,)").text().trim() // e.g., "Drama, Family"
+            if (genre.isNullOrBlank()) {
+                 genre = doc.select("div.ganre-wrapper a, .meta-cat, .genre a").joinToString { it.text() }
+            }
+            
+            author = doc.select("a[href*='cast.php'][href*='Director']").text() ?: 
+                     doc.select("div:contains(Director:) a").text() ?:
+                     doc.select("div:contains(Director:)").text().substringAfter("Director:").trim()
+
+            // Status is generally Completed for movies
             status = SAnime.COMPLETED
+            
             val detailsImg = doc.selectFirst("img.poster, .tvCard img, .movie-poster img")
             val rawDetailsImg = detailsImg?.attr("data-src")?.takeIf { it.isNotEmpty() } ?: detailsImg?.attr("src")
             thumbnail_url = rawDetailsImg?.let {
                 if (it.startsWith("http")) it else "$baseUrl/${it.trimStart('/')}"
             }
+            
+            // Extra info extraction for description
+            val year = doc.select("span.chip:matches(\\d{4})").text()
+            val duration = doc.select("span.chip:matches(\\d+h \\d+m)").text()
+            val lang = doc.select("span.chip:contains(Lang:)").text()
+            val score = doc.select("span.pill:contains(User Score:)").text()
+            
+            var extraInfo = ""
+            if (!year.isNullOrBlank()) extraInfo += "\nYear: $year"
+            if (!duration.isNullOrBlank()) extraInfo += "\nDuration: $duration"
+            if (!lang.isNullOrBlank()) extraInfo += "\n$lang"
+            if (!score.isNullOrBlank()) extraInfo += "\n$score"
+            
+            description = (description + extraInfo).trim()
         }
     }
 
@@ -227,7 +304,11 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         MovieCategoryFilter(),
         TvCategoryFilter(),
         AnimationCategoryFilter(),
-        ShowsCategoryFilter()
+        ShowsCategoryFilter(),
+        AnimeFilter.Separator(),
+        AnimeFilter.Header("Filters (Apply to Search)"),
+        YearFilter(),
+        GenreFilter()
     )
 
     private abstract class SelectFilter(name: String, values: Array<String>) : AnimeFilter.Select<String>(name, values) {
@@ -256,6 +337,15 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         "Any", "Award Shows", "Bangla Shows", "English Shows", "Hindi Shows", "Others Shows",
         "WWE", "AEW Wrestling", "WWE Wrestling", "Entertainment", "Documentary"
     ))
+    
+    class YearFilter : AnimeFilter.Group<CheckBox>("Year", (2026 downTo 1900).map { CheckBox(it.toString()) })
+    class CheckBox(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
+    
+    class GenreFilter : AnimeFilter.Group<CheckBox>("Genres", listOf(
+        "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", 
+        "Drama", "Family", "Fantasy", "Film-Noir", "History", "Horror", "Music", "Musical", 
+        "Mystery", "Romance", "Sci-Fi", "Short", "Sport", "Thriller", "War", "Western"
+    ).map { CheckBox(it) })
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {}
 }
