@@ -38,6 +38,14 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val page = searchAnimeParse(response)
+        val filtered = page.animes.filterNot { 
+            it.title.contains("Bangla", ignoreCase = true) 
+        }
+        return AnimesPage(filtered, page.hasNextPage)
+    }
+
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
