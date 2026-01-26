@@ -68,7 +68,8 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun popularAnimeParse(response: Response): AnimesPage {
         val page = searchAnimeParse(response)
         val filtered = page.animes.filterNot { 
-            it.title.contains("Bangla", ignoreCase = true) 
+            it.title.contains("Bangla", ignoreCase = true) || 
+            it.genre?.contains("Bangla", ignoreCase = true) == true
         }
         return AnimesPage(filtered, page.hasNextPage)
     }
