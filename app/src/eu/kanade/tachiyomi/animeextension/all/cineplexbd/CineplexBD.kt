@@ -93,11 +93,20 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
 
     private fun parseAnimeItem(element: Element): SAnime {
         return SAnime.create().apply {
-            url = element.attr("href")
+            val rawUrl = element.attr("href")
+            // Sanitize URL to ensure deduplication (remove extra params)
+            val id = rawUrl.substringAfter("id=").substringBefore("&")
+            url = if (rawUrl.contains("tview.php") || rawUrl.contains("series")) "/tview.php?id=$id" 
+                  else if (rawUrl.contains("watch.php")) "/watch.php?id=$id"
+                  else "/view.php?id=$id"
+
             val titleEl = element.selectFirst("span.truncate, div.text-sm, div.cp-title, h2, .card-title, .title")
             val posterImg = element.selectFirst("img.poster, .tvCard img, img[class*='poster'], img[src*='uploads/']")
             title = titleEl?.text() ?: posterImg?.attr("alt") ?: "Unknown Title"
             
+            // Extract info for filtering (Generic selector for robustness)
+            genre = element.selectFirst("p")?.text()
+
             var rawImg = posterImg?.attr("data-src")?.takeIf { it.isNotEmpty() }
                 ?: posterImg?.attr("src")
                 ?: element.selectFirst("img")?.attr("data-src")
