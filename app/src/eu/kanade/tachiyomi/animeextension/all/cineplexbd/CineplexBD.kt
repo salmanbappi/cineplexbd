@@ -37,30 +37,58 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/search.php?q=&page=$page")
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val url = "$baseUrl/search.php".toHttpUrlOrNull()!!.newBuilder()
-            .addQueryParameter("q", query)
-            .addQueryParameter("page", page.toString())
+        if (query.isNotBlank()) {
+            val url = "$baseUrl/search.php".toHttpUrlOrNull()!!.newBuilder()
+                .addQueryParameter("q", query)
+                .addQueryParameter("page", page.toString())
+
+            filters.forEach { filter ->
+                when (filter) {
+                    is YearFilter -> {
+                        filter.state.forEach { year ->
+                            if (year.state) {
+                                url.addQueryParameter("year[]", year.name)
+                            }
+                        }
+                    }
+                    is GenreFilter -> {
+                        filter.state.forEach { genre ->
+                            if (genre.state) {
+                                url.addQueryParameter("genre[]", genre.name)
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+            }
+            return GET(url.build().toString())
+        }
 
         filters.forEach { filter ->
             when (filter) {
-                is YearFilter -> {
-                    filter.state.forEach { year ->
-                        if (year.state) {
-                            url.addQueryParameter("year[]", year.name)
-                        }
+                is MovieCategoryFilter -> {
+                    if (filter.state != 0) {
+                        val url = "$baseUrl/category.php".toHttpUrlOrNull()!!.newBuilder()
+                            .addQueryParameter("category", filter.toUriPart())
+                            .addQueryParameter("page", page.toString())
+                        return GET(url.build().toString())
                     }
                 }
-                is GenreFilter -> {
-                    filter.state.forEach { genre ->
-                        if (genre.state) {
-                            url.addQueryParameter("genre[]", genre.name)
-                        }
+                is TvCategoryFilter,
+                is AnimationCategoryFilter,
+                is ShowsCategoryFilter -> {
+                    if ((filter as SelectFilter).state != 0) {
+                        val url = "$baseUrl/tcategory.php".toHttpUrlOrNull()!!.newBuilder()
+                            .addQueryParameter("category", filter.toUriPart())
+                            .addQueryParameter("page", page.toString())
+                        return GET(url.build().toString())
                     }
                 }
                 else -> {}
             }
         }
-        return GET(url.build().toString())
+
+        return popularAnimeRequest(page)
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
