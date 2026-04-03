@@ -107,6 +107,8 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         return AnimesPage(filtered, page.hasNextPage)
     }
 
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
+
     override fun searchAnimeParse(response: Response): AnimesPage {
         val doc = response.asJsoup()
         val animeList = mutableListOf<SAnime>()
