@@ -37,7 +37,12 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/search.php?q=&page=$page")
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        if (query.isNotBlank()) {
+        val hasSearchFilter = filters.any { 
+            (it is YearFilter && it.state.any { y -> y.state }) || 
+            (it is GenreFilter && it.state.any { g -> g.state })
+        }
+
+        if (query.isNotBlank() || hasSearchFilter) {
             val url = "$baseUrl/search.php".toHttpUrlOrNull()!!.newBuilder()
                 .addQueryParameter("q", query)
                 .addQueryParameter("page", page.toString())
@@ -90,8 +95,6 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
 
         return popularAnimeRequest(page)
     }
-
-    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val page = searchAnimeParse(response)
