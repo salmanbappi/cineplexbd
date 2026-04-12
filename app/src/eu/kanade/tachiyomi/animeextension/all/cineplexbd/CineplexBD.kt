@@ -18,6 +18,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -225,7 +226,7 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
         val episodes = mutableListOf<SEpisode>()
 
         if (url.contains("view.php") || url.contains("tview.php")) {
-            val id = url.substringAfter("id=")
+            val id = url.substringAfter("id=").substringBefore("&")
             episodes.add(SEpisode.create().apply {
                 name = "Movie"
                 episode_number = 1f
@@ -292,12 +293,20 @@ class CineplexBD : ConfigurableAnimeSource, AnimeHttpSource() {
             return listOf(Video(url, "Direct", url))
         }
 
-        val doc = response.asJsoup()
-        val videoUrl = doc.selectFirst("source[type='video/mp4'], source")?.attr("src")
+        val html = response.body.string()
+        
+        // Try regex first (modern player style)
+        var videoUrl = Regex("""const videoSrc\s*=\s*["'](.*?)["']""").find(html)?.groupValues?.get(1)
+        
+        // Fallback to Jsoup (legacy/other pages)
+        if (videoUrl.isNullOrBlank()) {
+            videoUrl = Jsoup.parse(html).selectFirst("source[type='video/mp4'], source")?.attr("src")
+        }
         
         if (!videoUrl.isNullOrBlank()) {
             val finalUrl = if (videoUrl.startsWith("http")) videoUrl else "$baseUrl/${videoUrl.trimStart('/')}"
-            return listOf(Video(finalUrl, "Original", finalUrl))
+            val quality = if (finalUrl.contains(".m3u8")) "HLS" else "Original"
+            return listOf(Video(finalUrl, quality, finalUrl))
         }
         return emptyList()
     }
